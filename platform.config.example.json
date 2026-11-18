@@ -1,0 +1,45 @@
+{
+  "$comment": "Copy to platform.config.json and adjust. The robot reads this file; colleagues cannot change it.",
+  "org": "your-org",
+  "platformRepo": "your-org/platform",
+  "templateRepo": "your-org/project-template",
+  "types": {
+    "lab": {
+      "description": "Experiments and explorations. Short-lived; paused after a period without changes.",
+      "domain": "lab.example.com",
+      "defaultAccess": "sso",
+      "pauseAfterDaysInactive": 60
+    },
+    "proto": {
+      "description": "Prototypes for clients and user tests.",
+      "domain": "proto.example.com",
+      "defaultAccess": "password",
+      "pauseAfterDaysInactive": 120
+    },
+    "tools": {
+      "description": "Internal tools that keep running.",
+      "domain": "tools.example.com",
+      "defaultAccess": "sso",
+      "pauseAfterDaysInactive": null
+    }
+  },
+  "audiences": ["internal", "client", "test-participants", "public"],
+  "dataClasses": ["fictional", "internal", "client", "personal"],
+  "accessModes": ["sso", "password", "open"],
+  "rules": {
+    "newProjectsNeverOpen": true,
+    "personalDataRequires": "sso",
+    "openOnlyWithData": ["fictional"],
+    "nameRegex": "^[a-z][a-z0-9-]{2,29}$"
+  },
+  "resources": {
+    "memoryLimit": "512m",
+    "cpuLimit": "0.5"
+  },
+  "deploy": {
+    "port": 3000,
+    "healthPath": "/api/health",
+    "followMinutes": 20
+  },
+  "admins": ["github-handle-of-admin"]
+}
