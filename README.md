@@ -13,6 +13,14 @@ Nobody has to touch Git, Docker, DNS or the hosting dashboard. Nobody gets a hos
 
 > Built at a digital product design agency to let the whole team experiment with AI-built tools and prototypes safely. Shared here so other teams and organisations can do the same.
 
+## Quick start
+
+1. Create a private `platform` repo in your GitHub organisation and copy this repo into it.
+2. Move `examples/platform-workflows/*` to `.github/workflows/` and `examples/platform-issue-template/*` to `.github/ISSUE_TEMPLATE/`.
+3. Create a separate template repo from the `template/` folder and mark it as a template repository.
+4. Copy `platform.config.example.json` to `platform.config.json` and fill in your org, domains and admins.
+5. Add the secrets listed at the top of `robot.yml`, then share `starter-prompt.md` with your colleagues.
+
 ---
 
 ## Why
@@ -93,9 +101,9 @@ See [`docs/security.md`](docs/security.md) for the full threat model.
 │   ├── .gitignore
 │   ├── .claude/settings.json
 │   └── .github/workflows/ci.yml
-└── .github/
-    ├── ISSUE_TEMPLATE/platform-request.md
-    └── workflows/
+└── examples/                      # copy into your own platform repo's .github/
+    ├── platform-issue-template/platform-request.md
+    └── platform-workflows/
         ├── robot.yml              # skeleton of the request robot
         └── learnings.yml          # weekly knowledge-base bundling
 ```
