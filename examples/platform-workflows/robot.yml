@@ -1,0 +1,105 @@
+# Skeleton of the request robot. Copy to .github/workflows/ in your platform repo.
+# It validates requests and, for `new`, creates the repo and the app.
+# Other actions follow the same pattern. Secrets needed:
+#   ROBOT_APP_ID / ROBOT_APP_KEY  – GitHub App with repo-admin rights on the org (not a personal token)
+#   COOLIFY_URL / COOLIFY_TOKEN   – token scoped to one team, only write + deploy, with an expiry date
+#   COOLIFY_SERVER_UUID / COOLIFY_PROJECT_UUID
+name: Platform robot
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: platform-robot
+  cancel-in-progress: false
+
+jobs:
+  handle:
+    if: contains(github.event.issue.body, '<!-- platform-request -->')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check membership
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AUTHOR: ${{ github.event.issue.user.login }}
+        run: |
+          gh api "orgs/${GITHUB_REPOSITORY_OWNER}/members/${AUTHOR}" --silent \
+            || { echo "Only members of the organisation can make requests." > reason.txt; exit 1; }
+
+      - name: Validate request
+        env:
+          BODY: ${{ github.event.issue.body }}
+          AUTHOR: ${{ github.event.issue.user.login }}
+        run: |
+          printf '%s' "$BODY" > body.md
+          node scripts/robot/validate.mjs body.md "$AUTHOR" > request.json 2> reason.txt
+
+      - name: GitHub App token
+        id: app
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.ROBOT_APP_ID }}
+          private-key: ${{ secrets.ROBOT_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Create repo from template
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          AUTHOR: ${{ github.event.issue.user.login }}
+        run: |
+          ACTION=$(jq -r .action request.json)
+          [ "$ACTION" = "new" ] || { echo "Action $ACTION: not in this skeleton yet." > reason.txt; exit 1; }
+          REPO=$(jq -r .repo request.json)
+          TEMPLATE=$(jq -r .templateRepo platform.config.example.json)
+          gh repo create "${GITHUB_REPOSITORY_OWNER}/${REPO}" --private --template "$TEMPLATE"
+          gh api -X PUT "repos/${GITHUB_REPOSITORY_OWNER}/${REPO}/collaborators/${AUTHOR}" -f permission=push
+
+      - name: Create app on hosting server
+        env:
+          COOLIFY_URL: ${{ secrets.COOLIFY_URL }}
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          SERVER: ${{ secrets.COOLIFY_SERVER_UUID }}
+          PROJECT: ${{ secrets.COOLIFY_PROJECT_UUID }}
+        run: |
+          REPO=$(jq -r .repo request.json)
+          DOMAIN=$(jq -r .domain request.json)
+          jq -n --arg repo "${GITHUB_REPOSITORY_OWNER}/${REPO}" --arg domain "https://${DOMAIN}" \
+                --arg server "$SERVER" --arg project "$PROJECT" '{
+            project_uuid: $project, server_uuid: $server, environment_name: "production",
+            git_repository: $repo, git_branch: "main", build_pack: "dockerfile",
+            ports_exposes: "3000", domains: $domain, health_check_enabled: true,
+            health_check_path: "/api/health", limits_memory: "512m", limits_cpus: "0.5",
+            instant_deploy: true
+          }' > app.json
+          # Endpoint depends on how the server is connected to GitHub (GitHub App vs deploy key).
+          curl -fsS -X POST "$COOLIFY_URL/api/v1/applications/private-github-app" \
+            -H "Authorization: Bearer $COOLIFY_TOKEN" -H "Content-Type: application/json" \
+            --data @app.json > app-created.json
+          # Add X-Robots-Tag: noindex and the access proxy rule here (proxy-specific).
+
+      - name: Reply
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE: ${{ github.event.issue.number }}
+          OUTCOME: ${{ job.status }}
+        run: |
+          ID=$(jq -r '.id // "unknown"' request.json 2>/dev/null || echo unknown)
+          if [ "$OUTCOME" = "success" ]; then
+            REPO=$(jq -r .repo request.json); DOMAIN=$(jq -r .domain request.json)
+            MSG="✅ Request \`$ID\` done.\n\n- Repo: https://github.com/${GITHUB_REPOSITORY_OWNER}/${REPO}\n- Live: https://${DOMAIN}\n\nNext: clone the repo, read AGENTS.md and start building."
+          else
+            MSG="❌ Request \`$ID\` was not carried out.\n\nReason: $(cat reason.txt 2>/dev/null || echo 'unexpected error, an admin will take a look.')"
+          fi
+          printf '%b' "$MSG" | gh issue comment "$ISSUE" --body-file -
